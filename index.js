@@ -8,7 +8,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: "http://localhost:3000",
+    origin: "*",
     methods: ["GET", "POST"],
   },
 });
@@ -21,7 +21,12 @@ const pool = new Pool({
   port: 5432,
 });
 
-app.use(cors());
+app.use(
+  cors({
+    origin: "*",
+    credentials: true,
+  })
+);
 app.use(express.json());
 
 app.get("/rooms", async (req, res) => {
@@ -55,11 +60,47 @@ app.get("/users", async (req, res) => {
     let query = "SELECT * FROM users";
 
     const result = await pool.query(query);
-    console.log(result.rows);
+
     res.json(result.rows);
   } catch (error) {
     console.error("Error fetching users:", error);
     res.status(500).json({ error: "Failed to fetch users" });
+  }
+});
+
+app.get("/messages", async (req, res) => {
+  const { sender_id, recipient_id, room_id } = req.query;
+
+  let query = "";
+  let params = [];
+
+  if (recipient_id) {
+    query = `
+      SELECT * 
+      FROM messages 
+      WHERE (sender_id = $1 AND recipient_id = $2)
+         OR (sender_id = $2 AND recipient_id = $1)
+      ORDER BY created_at ASC;
+    `;
+    params = [sender_id, recipient_id];
+  } else if (room_id) {
+    query = `
+      SELECT * 
+      FROM messages 
+      WHERE room_id = $1 
+      ORDER BY created_at ASC;
+    `;
+    params = [room_id];
+  } else {
+    return res.status(400).json({ error: "Missing required parameters" });
+  }
+
+  try {
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Error fetching messages:", error);
+    res.status(500).json({ error: "Failed to fetch messages" });
   }
 });
 
@@ -95,8 +136,6 @@ app.post("/users", async (req, res) => {
 });
 
 io.on("connection", (socket) => {
-  console.log(`User connected: ${socket.id}`);
-
   socket.on("join_room", async ({ roomId, userId }) => {
     try {
       if (!userId || !roomId) {
@@ -110,7 +149,6 @@ io.on("connection", (socket) => {
       );
 
       socket.join(roomId);
-      console.log(`User ${userId} joined room ${roomId}`);
     } catch (error) {
       console.error("Error joining room:", error);
     }
@@ -134,26 +172,24 @@ io.on("connection", (socket) => {
 
   socket.on(
     "send_private_message",
-    async ({ senderId, recipientId, content }) => {
-      console.log("message sent", senderId, recipientId, content);
+    async ({ sender_id, sender_info, recipient_id, content }) => {
       try {
         const recipientSocket = await pool.query(
           "SELECT socket_id FROM users WHERE id = $1",
-          [recipientId]
+          [recipient_id]
         );
         const socketId = recipientSocket.rows[0]?.socket_id;
-        console.log("socketId", socketId);
 
         if (socketId) {
           io.to(socketId).emit("receive_private_message", {
-            senderId,
+            sender_id,
             content,
           });
         }
 
         await pool.query(
-          "INSERT INTO messages (sender_id, recipient_id, content) VALUES ($1, $2, $3)",
-          [senderId, recipientId, content]
+          "INSERT INTO messages (sender_id, recipient_id, content, sender_info) VALUES ($1, $2, $3, $4)",
+          [sender_id, recipient_id, content, sender_info]
         );
       } catch (error) {
         console.error("Error sending private message:", error);
@@ -161,18 +197,25 @@ io.on("connection", (socket) => {
     }
   );
 
-  socket.on("send_room_message", async ({ senderId, roomId, content }) => {
-    try {
-      io.to(roomId).emit("receive_room_message", { senderId, content });
+  socket.on(
+    "send_room_message",
+    async ({ sender_id, room_id, content, sender_info }) => {
+      try {
+        io.to(room_id).emit("receive_room_message", {
+          sender_id,
+          content,
+          sender_info,
+        });
 
-      await pool.query(
-        "INSERT INTO messages (sender_id, room_id, content) VALUES ($1, $2, $3)",
-        [senderId, roomId, content]
-      );
-    } catch (error) {
-      console.error("Error sending room message:", error);
+        await pool.query(
+          "INSERT INTO messages (sender_id, room_id, content, sender_info) VALUES ($1, $2, $3, $4)",
+          [sender_id, room_id, content, sender_info]
+        );
+      } catch (error) {
+        console.error("Error sending room message:", error);
+      }
     }
-  });
+  );
 
   socket.on("disconnect", async () => {
     try {
@@ -180,7 +223,6 @@ io.on("connection", (socket) => {
         "UPDATE users SET socket_id = NULL WHERE socket_id = $1",
         [socket.id]
       );
-      console.log(`User disconnected: ${socket.id}`);
     } catch (error) {
       console.error("Error handling disconnect:", error);
     }
