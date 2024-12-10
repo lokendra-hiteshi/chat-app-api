@@ -5,6 +5,9 @@ const cors = require("cors");
 const { Pool } = require("pg");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
+const dotenv = require("dotenv");
+
+dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
@@ -18,12 +21,10 @@ const io = new Server(server, {
 const pool = new Pool({
   user: "postgres",
   host: "localhost",
-  database: "chat-app",
-  password: "loken7213",
-  port: 5432,
+  database: process.env.DB,
+  password: process.env.DB_PASS,
+  port: process.env.POSTGRES_PORT,
 });
-
-const JWT_SECRET = "hghrghdget";
 
 app.use(
   cors({
@@ -32,6 +33,8 @@ app.use(
   })
 );
 app.use(express.json());
+
+const JWT_SECRET = process.env.JWT_SECRET_KEY;
 
 function authenticateToken(req, res, next) {
   const token = req.headers["authorization"]?.split(" ")[1];
