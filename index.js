@@ -2,7 +2,12 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const cors = require("cors");
-const { Pool } = require("pg");
+const db = require("./controller");
+const jwt = require("jsonwebtoken");
+const dotenv = require("dotenv");
+const { pool } = require("./db");
+
+dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
@@ -13,14 +18,6 @@ const io = new Server(server, {
   },
 });
 
-const pool = new Pool({
-  user: "postgres",
-  host: "localhost",
-  database: "chat-app",
-  password: "loken7213",
-  port: 5432,
-});
-
 app.use(
   cors({
     origin: "*",
@@ -29,145 +26,61 @@ app.use(
 );
 app.use(express.json());
 
-app.get("/rooms", async (req, res) => {
-  try {
-    const result = await pool.query("SELECT * FROM rooms");
-    res.json(result.rows);
-  } catch (error) {
-    console.error("Error fetching rooms:", error);
-    res.status(500).json({ error: "Failed to fetch rooms" });
-  }
-});
+const JWT_SECRET = process.env.JWT_SECRET_KEY;
 
-app.post("/rooms", async (req, res) => {
-  const { name } = req.body;
-  try {
-    const result = await pool.query(
-      "INSERT INTO rooms (name) VALUES ($1) RETURNING *",
-      [name]
-    );
-    const room = result.rows[0];
-    io.emit("new_room", room);
-    res.json(room);
-  } catch (error) {
-    console.error("Error creating room:", error);
-    res.status(500).json({ error: "Failed to create room" });
-  }
-});
+function authenticateToken(req, res, next) {
+  const token = req.headers["authorization"]?.split(" ")[1];
+  if (!token) return res.status(401).json({ error: "Unauthorized" });
 
-app.get("/users", async (req, res) => {
-  try {
-    let query = "SELECT * FROM users";
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) return res.status(403).json({ error: "Invalid token" });
+    req.user = user;
+    next();
+  });
+}
 
-    const result = await pool.query(query);
+// API Routes
 
-    res.json(result.rows);
-  } catch (error) {
-    console.error("Error fetching users:", error);
-    res.status(500).json({ error: "Failed to fetch users" });
-  }
-});
+app.get("/messages", authenticateToken, db.getMessages);
+app.get("/rooms", authenticateToken, db.getRooms);
+app.post("/rooms", authenticateToken, db.createRoom);
+app.get("/users", authenticateToken, db.getUsers);
+app.post("/users", db.createUsers);
+app.post("/login", db.loginUser);
 
-app.get("/messages", async (req, res) => {
-  const { sender_id, recipient_id, room_id } = req.query;
-
-  let query = "";
-  let params = [];
-
-  if (recipient_id) {
-    query = `
-      SELECT * 
-      FROM messages 
-      WHERE (sender_id = $1 AND recipient_id = $2)
-         OR (sender_id = $2 AND recipient_id = $1)
-      ORDER BY created_at ASC;
-    `;
-    params = [sender_id, recipient_id];
-  } else if (room_id) {
-    query = `
-      SELECT * 
-      FROM messages 
-      WHERE room_id = $1 
-      ORDER BY created_at ASC;
-    `;
-    params = [room_id];
-  } else {
-    return res.status(400).json({ error: "Missing required parameters" });
-  }
-
-  try {
-    const result = await pool.query(query, params);
-    res.json(result.rows);
-  } catch (error) {
-    console.error("Error fetching messages:", error);
-    res.status(500).json({ error: "Failed to fetch messages" });
-  }
-});
-
-app.post("/users", async (req, res) => {
-  const { userId, name, socketId } = req.body;
-  try {
-    let result;
-
-    if (userId) {
-      const query = `
-        UPDATE users 
-        SET socket_id = $2 
-        WHERE id = $1 
-        RETURNING *`;
-      result = await pool.query(query, [userId, socketId]);
-    } else {
-      const query = `
-        INSERT INTO users (name, socket_id) 
-        VALUES ($1, $2) 
-        ON CONFLICT (name) DO UPDATE 
-        SET socket_id = EXCLUDED.socket_id 
-        RETURNING *`;
-      result = await pool.query(query, [name, socketId]);
-      const user = result.rows[0];
-      io.emit("new_user", user);
-    }
-
-    res.json(result.rows[0]);
-  } catch (error) {
-    console.error("Error registering user:", error);
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
+// Socket Connection
 
 io.on("connection", (socket) => {
   socket.on("join_room", async ({ roomId, userId }) => {
+    const roomQuery = "SELECT * FROM rooms WHERE id = $1";
+    const roomResult = await pool.query(roomQuery, [roomId]);
+
+    if (roomResult.rows.length === 0) {
+      return res.status(404).json({ error: "Room not found" });
+    }
+
+    const updateQuery = `
+          UPDATE rooms
+          SET joiners = array_append(joiners, $1)
+          WHERE id = $2
+          RETURNING *;
+        `;
+    await pool.query(updateQuery, [userId, roomId]);
+
+    socket.join(roomId);
+  });
+
+  socket.on("join_room_chat", async ({ roomId }) => {
     try {
-      if (!userId || !roomId) {
-        console.error("Invalid userId or roomId");
+      if (!roomId) {
+        console.error("Invalid roomId");
         return;
       }
-
-      await pool.query(
-        "INSERT INTO user_rooms (user_id, room_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-        [userId, roomId]
-      );
 
       socket.join(roomId);
     } catch (error) {
       console.error("Error joining room:", error);
     }
-  });
-
-  socket.on("register_user", ({ userId, userName }) => {
-    const socketId = socket.id;
-    const query =
-      "INSERT INTO users (id, name, socket_id) VALUES ($1, $2, $3) ON CONFLICT (id) DO UPDATE SET socket_id = $3 RETURNING id";
-    const values = [userId, userName, socketId];
-
-    pool
-      .query(query, values)
-      .then((result) => {
-        console.log("User registered with socket_id", result.rows[0]);
-      })
-      .catch((error) => {
-        console.error("Error registering user with socket_id:", error);
-      });
   });
 
   socket.on(
@@ -196,12 +109,11 @@ io.on("connection", (socket) => {
       }
     }
   );
-
   socket.on(
     "send_room_message",
     async ({ sender_id, room_id, content, sender_info }) => {
       try {
-        io.to(room_id).emit("receive_room_message", {
+        io.in(room_id).emit("receive_room_message", {
           sender_id,
           content,
           sender_info,
