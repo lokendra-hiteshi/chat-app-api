@@ -47,9 +47,6 @@ const createUsers = async (req, res) => {
       RETURNING id, name, email, socket_id`;
     result = await pool.query(query, [name, email, hashedPassword, socketId]);
 
-    const user = result.rows[0];
-
-    io.emit("new_user", user);
     res.status(201).json({ message: "User Registered Succesfully!!" });
   } catch (error) {
     console.error("Error registering user:", error);
@@ -88,9 +85,13 @@ const loginUser = async (req, res) => {
       user.socket_id = updateSocketResult.rows[0].socket_id;
     }
 
-    const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, {
-      expiresIn: "1w",
-    });
+    const token = jwt.sign(
+      { id: user.id, email: user.email, name: user.name },
+      JWT_SECRET,
+      {
+        expiresIn: "1w",
+      }
+    );
 
     const { password: _, ...userWithoutPassword } = user;
     res.json({ user: userWithoutPassword, token });
@@ -148,7 +149,9 @@ const getMessages = async (req, res) => {
       ORDER BY created_at ASC`;
     params = [room_id];
   } else {
-    return res.status(400).json({ error: "Missing required parameters" });
+    query = `
+      SELECT * 
+      FROM messages`;
   }
 
   try {
