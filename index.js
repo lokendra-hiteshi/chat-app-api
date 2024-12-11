@@ -60,19 +60,18 @@ io.on("connection", (socket) => {
     const roomQuery = "SELECT * FROM rooms WHERE id = $1";
     const roomResult = await pool.query(roomQuery, [roomId]);
 
-    if (roomResult.rows.length === 0) {
+    if (roomResult?.rows?.length === 0) {
       return res.status(404).json({ error: "Room not found" });
     }
+    const room = roomResult?.rows[0];
 
-    if (userId) {
+    const creator_id = room?.creator_id;
+
+    if (creator_id) {
       try {
         const query = `SELECT (email) FROM users where id = $1`;
-        const res = await pool.query(query, [userId]);
-        sendEMail(
-          res.rows[0].email,
-          roomResult.rows[0].name,
-          "https://www.youtube.com/"
-        );
+        const res = await pool.query(query, [creator_id]);
+        sendEMail(res.rows[0]?.email, room.name, "https://www.youtube.com/");
         io.emit("join_room_message_success", "Request mail sent Succesfully!!");
       } catch (err) {
         io.emit("join_room_message_error", `Error in Sending Email!!, ${err}`);
