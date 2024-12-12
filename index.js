@@ -6,6 +6,7 @@ const db = require("./controller");
 const jwt = require("jsonwebtoken");
 const dotenv = require("dotenv");
 const { pool } = require("./db");
+const { sendEmailRequest } = require("./services/email_service");
 
 dotenv.config();
 
@@ -41,10 +42,15 @@ function authenticateToken(req, res, next) {
 
 // API Routes
 
+app.get("/", (req, res) => {
+  res.json({ message: "Node.js, Express, and Postgres API" });
+});
+
 app.get("/messages", authenticateToken, db.getMessages);
 app.get("/rooms", authenticateToken, db.getRooms);
 app.post("/rooms", authenticateToken, db.createRoom);
 app.get("/users", authenticateToken, db.getUsers);
+app.post("/join-room", db.joinRoom);
 app.post("/users", db.createUsers);
 app.post("/login", db.loginUser);
 
@@ -55,8 +61,26 @@ io.on("connection", (socket) => {
     const roomQuery = "SELECT * FROM rooms WHERE id = $1";
     const roomResult = await pool.query(roomQuery, [roomId]);
 
-    if (roomResult.rows.length === 0) {
+    if (roomResult?.rows?.length === 0) {
       return res.status(404).json({ error: "Room not found" });
+    }
+    const room = roomResult?.rows[0];
+
+    const creator_id = room?.creator_id;
+
+    if (creator_id) {
+      try {
+        const query = `SELECT (email) FROM users where id = $1`;
+        const res = await pool.query(query, [creator_id]);
+        sendEmailRequest(
+          res.rows[0]?.email,
+          room.name,
+          "https://www.youtube.com/"
+        );
+        io.emit("join_room_message_success", "Request mail sent Succesfully!!");
+      } catch (err) {
+        io.emit("join_room_message_error", `Error in Sending Email!!, ${err}`);
+      }
     }
 
     const updateQuery = `
