@@ -42,7 +42,7 @@ const createTransporter = async () => {
   }
 };
 
-const sendEMail = async (to, roomName, pagelink) => {
+const sendEmailRequest = async (to, roomName, pagelink) => {
   try {
     const mailOptions = {
       from: process.env.USER_EMAIL,
@@ -59,4 +59,20 @@ const sendEMail = async (to, roomName, pagelink) => {
   }
 };
 
-module.exports = { sendEMail };
+const sendEmailAprovel = async (to, userName, roomName) => {
+  try {
+    const mailOptions = {
+      from: process.env.USER_EMAIL,
+      to,
+      subject: `Got Approvel From the Creator!!`,
+      html: `<b>Hello ${userName}, Your request for joining the room ${roomName} has approved.</b></br><b>now you can Chat in the room ${roomName}.</b></br>
+               <b>Thank you for using our Application.</b>`,
+    };
+
+    let emailTransporter = await createTransporter();
+    await emailTransporter.sendMail(mailOptions);
+  } catch (err) {
+    console.log("ERROR: ", err);
+  }
+};
+module.exports = { sendEmailRequest, sendEmailAprovel };

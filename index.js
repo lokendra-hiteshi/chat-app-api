@@ -6,7 +6,7 @@ const db = require("./controller");
 const jwt = require("jsonwebtoken");
 const dotenv = require("dotenv");
 const { pool } = require("./db");
-const { sendEMail } = require("./services/email_service");
+const { sendEmailRequest } = require("./services/email_service");
 
 dotenv.config();
 
@@ -50,6 +50,7 @@ app.get("/messages", authenticateToken, db.getMessages);
 app.get("/rooms", authenticateToken, db.getRooms);
 app.post("/rooms", authenticateToken, db.createRoom);
 app.get("/users", authenticateToken, db.getUsers);
+app.post("/join-room", db.joinRoom);
 app.post("/users", db.createUsers);
 app.post("/login", db.loginUser);
 
@@ -71,22 +72,26 @@ io.on("connection", (socket) => {
       try {
         const query = `SELECT (email) FROM users where id = $1`;
         const res = await pool.query(query, [creator_id]);
-        sendEMail(res.rows[0]?.email, room.name, "https://www.youtube.com/");
+        sendEmailRequest(
+          res.rows[0]?.email,
+          room.name,
+          "https://www.youtube.com/"
+        );
         io.emit("join_room_message_success", "Request mail sent Succesfully!!");
       } catch (err) {
         io.emit("join_room_message_error", `Error in Sending Email!!, ${err}`);
       }
     }
 
-    // const updateQuery = `
-    //       UPDATE rooms
-    //       SET joiners = array_append(joiners, $1)
-    //       WHERE id = $2
-    //       RETURNING *;
-    //     `;
-    // await pool.query(updateQuery, [userId, roomId]);
+    const updateQuery = `
+          UPDATE rooms
+          SET joiners = array_append(joiners, $1)
+          WHERE id = $2
+          RETURNING *;
+        `;
+    await pool.query(updateQuery, [userId, roomId]);
 
-    // socket.join(roomId);
+    socket.join(roomId);
   });
 
   socket.on("join_room_chat", async ({ roomId }) => {

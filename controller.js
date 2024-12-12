@@ -1,6 +1,7 @@
 const { pool } = require("./db");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
+const { sendEmailAprovel } = require("./services/email_service");
 
 const JWT_SECRET = process.env.JWT_SECRET_KEY;
 
@@ -127,6 +128,33 @@ const createRoom = async (req, res) => {
   }
 };
 
+const joinRoom = async (req, res) => {
+  const { room_id, joiner_id } = req.body;
+
+  const user = await pool.query(`SELECT * from users where id = $1`, [
+    joiner_id,
+  ]);
+
+  try {
+    const updateQuery = `
+          UPDATE rooms
+          SET joiners = array_append(joiners, $1)
+          WHERE id = $2
+          RETURNING *;
+        `;
+    const result = await pool.query(updateQuery, [joiner_id, room_id]);
+    res.json(result.rows[0]);
+    sendEmailAprovel(
+      user.rows[0]?.email,
+      user.rows[0]?.name,
+      result.rows[0].name
+    );
+  } catch (error) {
+    console.error("Error Joining room:", error);
+    res.status(500).json({ error: "Failed to Join room" });
+  }
+};
+
 const getMessages = async (req, res) => {
   const { sender_id, recipient_id, room_id } = req.query;
 
@@ -170,4 +198,5 @@ module.exports = {
   getRooms,
   createRoom,
   getMessages,
+  joinRoom,
 };
