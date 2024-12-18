@@ -1,4 +1,3 @@
-// socket.js
 const { pool } = require("../db-config");
 const { sendEmailRequest } = require("../services/email_service");
 
