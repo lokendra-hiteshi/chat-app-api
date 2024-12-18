@@ -24,36 +24,7 @@ Installation
   
       npm install
   
-  4. Set up the PostgreSQL database:
-  
-     Create a new PostgreSQL database.
-
-       -- Create the users table
-        CREATE TABLE users (
-            id SERIAL PRIMARY KEY,
-            name VARCHAR(255) NOT NULL,
-            socket_id VARCHAR(255),
-            email VARCHAR(255) UNIQUE NOT NULL,
-            password VARCHAR(255) NOT NULL
-        );
-        
-        -- Create the rooms table
-        CREATE TABLE rooms (
-            id SERIAL PRIMARY KEY,
-            name VARCHAR(255) NOT NULL UNIQUE,
-            creator_id INTEGER NOT NULL REFERENCES users(id),
-            joiners INTEGER[] 
-        );
-        
-        -- Create the messages table
-        CREATE TABLE messages (
-            id SERIAL PRIMARY KEY,
-            content TEXT NOT NULL,
-            sender_id INTEGER NOT NULL REFERENCES users(id),
-            recipient_id INTEGER REFERENCES users(id), 
-            room_id INTEGER REFERENCES rooms(id), 
-            sender_info JSONB
-        );
+  4. Set up the PostgreSQL database   
        
   
   Update the database connection details in the environment variables or configuration file.
