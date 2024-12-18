@@ -1,7 +1,7 @@
-const { pool } = require("./db");
+const { pool } = require("../db-config");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
-const { sendEmailAprovel } = require("./services/email_service");
+const { sendEmailAprovel } = require("../services/email_service");
 
 const JWT_SECRET = process.env.JWT_SECRET_KEY;
 
