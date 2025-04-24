@@ -1,0 +1,3 @@
+# Default Config
+clientConfig:
+  canarySchedule: [100]
